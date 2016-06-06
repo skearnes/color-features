@@ -1,0 +1,13 @@
+#!/bin/bash
+
+#PBS -l nodes=1:ppn=1,walltime=24:00:00
+#PBS -j oe
+
+echo REF $ref
+echo FIT $fit
+echo PREFIX $prefix
+
+echo PYTHON `which python`
+
+cd $PBS_O_WORKDIR
+time python ~/git/oe-utils/oe_utils/scripts/color_components.py -r $ref -f $fit -o ${prefix}-color_components.h5

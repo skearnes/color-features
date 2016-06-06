@@ -1,0 +1,27 @@
+#!/bin/bash
+
+#PBS -l nodes=1:ppn=1,walltime=24:00:00
+#PBS -j oe
+
+echo DATASET $dataset
+echo MODEL $model
+echo SUBSET $subset
+
+echo PYTHON `which python`
+
+cd $PBS_O_WORKDIR
+
+ROOT=/home/kearnes/thesis/color_features/chembl
+
+time python ~/git/rocs-features-paper/code/models.py \
+    --rocs_actives ${ROOT}/actives/${subset}/rocs/%s-actives-rocs.h5 \
+    --rocs_inactives ${ROOT}/decoys/${subset}/rocs/%s-decoys-rocs.h5 \
+    --color_components_actives ${ROOT}/actives/${subset}/color_components/%s-actives-color_components.h5 \
+    --color_components_inactives ${ROOT}/decoys/${subset}/color_components/%s-decoys-color_components.h5 \
+    --color_atom_overlaps_actives ${ROOT}/actives/${subset}/color_atom_overlap/%s-actives-color_atom_overlaps.h5 \
+    --color_atom_overlaps_inactives ${ROOT}/decoys/${subset}/color_atom_overlap/%s-decoys-color_atom_overlaps.h5 \
+    --dataset ${dataset} \
+    --model ${model} \
+    --cycle \
+    --n_jobs $PBS_NP \
+    --output chembl-${dataset}-${model}-${subset}.pkl.gz
