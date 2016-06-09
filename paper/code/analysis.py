@@ -1,11 +1,4 @@
-"""Analyze results.
-
-For MUV, we should report the datasets separately, I think, but that makes for
-a very large table. Either way, we treat each reference molecule as a different
-dataset, since we care about the performance changes with respect to that
-reference molecule (a separate experiment with different features, just like a
-different fingerprint).
-"""
+"""Analyze results."""
 
 import cPickle as pickle
 import gflags as flags
@@ -14,7 +7,6 @@ import logging
 import numpy as np
 import os
 import pandas as pd
-from scipy import stats
 from statsmodels.stats import proportion
 import sys
 
@@ -62,67 +54,26 @@ def load_data(model, subset):
     return pd.concat(data)
 
 
-def critical_value(num_datasets):
-    """Get the critical value for a two-sided 95% confidence interval.
-
-    See http://docs.scipy.org/doc/scipy/reference/tutorial/stats.html
-    """
-    df = num_datasets - 1  # Degrees of freedom = N - 1.
-    return stats.t.isf(0.975, df)
-
-
-def confidence_interval(delta, metric, sign_test=True):
-    """Calculate a two-sided 95% confidence interval for differences."""
-    # Wilson score interval for sign test.
-    if sign_test:
-        num_successes = np.count_nonzero(delta > 0)
-        num_trials = np.count_nonzero(delta != 0)  # Exclude zero differences.
-        lower, upper = proportion.proportion_confint(
-            num_successes, num_trials, alpha=0.05, method='wilson')
-        median_delta = delta.median()
-        if metric == 'auc':
-            median = r'%.3f' % median_delta
-            ci = r'(%.2f, %.2f)' % (lower, upper)
-        else:
-            median = r'%.0f' % median_delta
-            ci = r'(%.0f, %.0f)' % (lower, upper)
-        if lower < 0.5 and upper < 0.5:
-            median = r'\bfseries \color{red} ' + median
-            ci = r'\bfseries \color{red} ' + ci
-        elif lower > 0.5 and upper > 0.5:
-            median = r'\bfseries ' + median
-            ci = r'\bfseries ' + ci
-        return median, ci
-    # Paired t-test.
-    else:
-        # Make sure differences are approximately normally distributed.
-        _, p = stats.normaltest(delta)
-        if p < 0.05:
-            import IPython
-            IPython.embed()
-            raise AssertionError('Differences are not normally distributed: %g' % p)
-
-        num_datasets = len(delta)
-        t_star = np.abs(critical_value(num_datasets))
-        mean = delta.mean()
-        std = delta.std()
-        lower = mean - t_star * std / np.sqrt(num_datasets)
-        upper = mean + t_star * std / np.sqrt(num_datasets)
-        return mean, str_confidence_interval(lower, upper, metric)
-
-
-def str_confidence_interval(lower, upper, metric):
+def confidence_interval(delta, metric):
+    """Calculate a 95% sign test confidence interval for differences."""
+    num_successes = np.count_nonzero(delta > 0)
+    num_trials = np.count_nonzero(delta != 0)  # Exclude zero differences.
+    lower, upper = proportion.proportion_confint(
+        num_successes, num_trials, alpha=0.05, method='wilson')
+    median_delta = np.median(delta)
     if metric == 'auc':
-        number = '%.3f'
+        median = r'%.3f' % median_delta
+        ci = r'(%.2f, %.2f)' % (lower, upper)
     else:
-        number = '%.0f'
-    ci = r'(\num{%s}, \num{%s})' % (number % lower, number % upper)
-    if lower < 0 and upper < 0:
-        return r'\bfseries \color{red} ' + ci
-    elif lower > 0 and upper > 0:
-        return r'\bfseries ' + ci
-    else:
-        return ci
+        median = r'%.0f' % median_delta
+        ci = r'(%.0f, %.0f)' % (lower, upper)
+    if lower < 0.5 and upper < 0.5:
+        median = r'\bfseries \color{red} ' + median
+        ci = r'\bfseries \color{red} ' + ci
+    elif lower > 0.5 and upper > 0.5:
+        median = r'\bfseries ' + median
+        ci = r'\bfseries ' + ci
+    return median, ci
 
 
 def data_table(data, subsets, models, kind=None, tversky=False):
@@ -203,9 +154,8 @@ def data_table(data, subsets, models, kind=None, tversky=False):
                         if 'index' in df.columns:
                             assert np.array_equal(df['index'].values,
                                                   rocs_df['index'].values)
-                        delta = df.copy()
-                        delta[metric] -= rocs_df[metric].values
-                        row.extend(confidence_interval(delta[metric], metric))
+                        delta = df[metric].values - rocs_df[metric].values
+                        row.extend(confidence_interval(delta, metric))
             table.append(' & '.join(row))
     print ' \\\\\n'.join(table)
 
