@@ -60,10 +60,7 @@ def main(ref_filename, fit_filename, out_filename, cluster_id=None,
         Batch size.
     """
     color_overlap_kwargs, rocs_kwargs = {}, {}  # TODO: get from command line
-    results = []
-    ref_color_coords = []
-    ref_color_types = []
-    ref_color_type_names = []
+    results = collections.defaultdict(list)
     ref_reader = MolReader(ref_filename)
     call = get_map(cluster_id)
     ref_size, fit_size = 0, 0
@@ -73,22 +70,20 @@ def main(ref_filename, fit_filename, out_filename, cluster_id=None,
                     color_overlap_kwargs=color_overlap_kwargs)
         worker_results = call(f, fit_reader.get_batches(batch_size))
         # store each result as a separate array
-        ref_results = []
-        worker_color_coords = None
-        for ref_result, color_coords in worker_results:
-            for fit_result in ref_result:
-                ref_results.append(fit_result)
-            if worker_color_coords is None:
-                worker_color_coords = color_coords
-            else:
-                assert np.allclose(worker_color_coords, color_coords)
-        results.append(ref_results)
-        ref_color_coords.append(worker_color_coords)
+        ref_results = collections.defaultdict(list)
+        for worker_result in worker_results:
+            for fit_result in worker_result:
+                ref_results['overlaps'].append(fit_result['overlaps'])
+                results['fit_titles'].append(fit_result['fit_title'])
+                check_color_consistency(ref_results, fit_result)
+        for key, value in ref_results.iteritems():
+            results[key].append(value)
+        results['ref_titles'].append(ref_mol.GetTitle())
         ref_size += 1
-        fit_size = len(ref_results)
-    # ensure that results end up 2D
+        fit_size = len(ref_results['overlaps'])
+    # ensure that results end up 2D (not 3D)
     data = np.zeros((ref_size, fit_size), dtype=object)
-    for i, ref_results in enumerate(results):
+    for i, ref_results in enumerate(results['overlaps']):
         for j, fit_results in enumerate(ref_results):
             data[i, j] = fit_results
     # transpose to get fit mols on first axis
@@ -97,9 +92,11 @@ def main(ref_filename, fit_filename, out_filename, cluster_id=None,
     h5_utils.dump(
         {'color_atom_overlaps': data.filled(np.nan),
          'mask': data.mask,
-         'ref_color_coords': ref_color_coords,
-         'ref_color_types': ref_color_types,
-         'ref_color_type_names': ref_color_type_names},
+         'ref_color_coords': results['ref_color_coords'],
+         'ref_color_types': results['ref_color_types'],
+         'ref_color_type_names': results['ref_color_type_names'],
+         'ref_titles': results['ref_titles'],
+         'fit_titles': results['fit_titles']},
         out_filename)
 
 
@@ -117,6 +114,10 @@ def worker(fit_mols, ref_mol, rocs_kwargs=None, color_overlap_kwargs=None):
         Keyword arguments for ROCS engine.
     color_overlap_kwargs : dict, optional
         Keyword arguments for ColorOverlap engine.
+
+    Returns
+    -------
+    List of dicts (one for each fit_mol) containing overlap results.
     """
     import numpy as np
 
@@ -130,33 +131,35 @@ def worker(fit_mols, ref_mol, rocs_kwargs=None, color_overlap_kwargs=None):
     rocs_engine = ROCS(**rocs_kwargs)
     overlap_engine = ColorOverlap(**color_overlap_kwargs)
     rocs_engine.SetRefMol(ref_mol)
-    ref_results = collections.defaultdict(list)
+    ref_results = []
     for fit_mol in fit_mols:
         rocs_result = rocs_engine.get_best_overlay(fit_mol)
         ref_conf, fit_conf = rocs_engine.get_aligned_confs(
             ref_mol, fit_mol, rocs_result)
         overlap_engine.SetRefMol(ref_conf)
-        overlap_results = overlap_engine.get_ref_color_atom_overlaps(fit_conf)
-        fit_results = np.asarray([overlap.color_overlap
-                                 for overlap in overlap_results['overlaps']],
-                                 dtype=float)
-        ref_results['overlaps'].append(fit_results)
-        # Check that reference molecule color atoms are consistent.
-        if 'ref_color_coords' not in ref_results:
-            ref_results['ref_color_coords'] = overlap_results[
-                'ref_color_coords']
-            ref_results['ref_color_types'] = overlap_results[
-                'ref_color_types']
-            ref_results['ref_color_type_names'] = overlap_results[
-                'ref_color_type_names']
-        else:
-            assert np.allclose(ref_results['ref_color_coords'],
-                               overlap_results['ref_color_coords'])
-            assert np.array_equal(ref_results['ref_color_types'],
-                                  overlap_results['ref_color_types'])
-            assert np.array_equal(ref_results['ref_color_type_names'],
-                                  overlap_results['ref_color_type_names'])
+        fit_results = overlap_engine.get_ref_color_atom_overlaps(fit_conf)
+        # Extract color overlap scores from ColorOverlapResults.
+        fit_results['overlaps'] = np.asarray(
+            [result.color_overlap for result in fit_results['overlaps']],
+            dtype=float)
+        fit_results['fit_title'] = fit_mol.GetTitle()
+        ref_results.append(fit_results)
     return ref_results
+
+
+def check_color_consistency(primary, secondary):
+    """Check that reference molecule color atoms are consistent."""
+    if 'ref_color_coords' not in primary:
+        primary['ref_color_coords'] = secondary['ref_color_coords']
+        primary['ref_color_types'] = secondary['ref_color_types']
+        primary['ref_color_type_names'] = secondary['ref_color_type_names']
+    else:
+        assert np.allclose(primary['ref_color_coords'],
+                           secondary['ref_color_coords'])
+        assert np.array_equal(primary['ref_color_types'],
+                              secondary['ref_color_types'])
+        assert np.array_equal(primary['ref_color_type_names'],
+                              secondary['ref_color_type_names'])
 
 if __name__ == '__main__':
     args = get_args()
