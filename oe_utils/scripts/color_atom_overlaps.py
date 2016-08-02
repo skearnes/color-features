@@ -149,17 +149,12 @@ def worker(fit_mols, ref_mol, rocs_kwargs=None, color_overlap_kwargs=None):
 
 def check_color_consistency(primary, secondary):
     """Check that reference molecule color atoms are consistent."""
-    if 'ref_color_coords' not in primary:
-        primary['ref_color_coords'] = secondary['ref_color_coords']
-        primary['ref_color_types'] = secondary['ref_color_types']
-        primary['ref_color_type_names'] = secondary['ref_color_type_names']
-    else:
-        assert np.allclose(primary['ref_color_coords'],
-                           secondary['ref_color_coords'])
-        assert np.array_equal(primary['ref_color_types'],
-                              secondary['ref_color_types'])
-        assert np.array_equal(primary['ref_color_type_names'],
-                              secondary['ref_color_type_names'])
+    keys = ['ref_color_coords', 'ref_color_types', 'ref_color_type_names']
+    for key in keys:
+        if key not in primary
+            primary[key] = secondary[key]
+        else:
+            assert np.array_equal(primary[key], secondary[key])
 
 if __name__ == '__main__':
     args = get_args()

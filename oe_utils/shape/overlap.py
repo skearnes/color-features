@@ -6,6 +6,7 @@ __author__ = "Steven Kearnes"
 __copyright__ = "Copyright 2014, Stanford University"
 __license__ = "3-clause BSD"
 
+import collections
 import numpy as np
 
 from openeye.oechem import *
@@ -78,9 +79,11 @@ class ColorOverlap(OEColorOverlap):
         """
         if self.color_component_engines is None:
             self.color_component_engines = self.get_color_component_engines()
-        results = []
-        for engine in self.color_component_engines:
-            results.append(engine.overlap(fit_mol))
+        results = collections.defaultdict(list)
+        for color_type, color_type_name, engine in self.color_component_engines:
+            results['overlaps'].append(engine.overlap(fit_mol))
+            results['color_types'].append(color_type)
+            results['color_type_names'].append(color_type_name)
         return results
 
     def get_color_component_engines(self):
@@ -90,10 +93,19 @@ class ColorOverlap(OEColorOverlap):
         color_component_engines = []
         color_ff = ColorForceField(self.color_ff)
         for this_color_ff in color_ff.isolate_interactions():
+            # Get a label for this force field.
+            # Assume like interactions only, and no duplicates.
+            # TODO: allow more flexibility here.
+            interactions = this_color_ff.get_interactions()
+            assert len(interactions) == 1
+            assert interactions[0][0] == interactions[0][1]
+            color_type = interactions[0][0]
+            color_type_name = this_color_ff.GetTypeName(color_type)
             engine = ColorOverlap(
                 color_ff=this_color_ff, all_color=self.GetAllColor())
             engine.SetRefMol(self.ref_mol)
-            color_component_engines.append(engine)
+            color_component_engines.append(
+                (color_type, color_type_name, engine))
         return color_component_engines
 
     @staticmethod
