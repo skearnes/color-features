@@ -82,24 +82,31 @@ def main(ref_filename, fit_filename, out_filename, cluster_id=None,
         ref_size += 1
         fit_size = len(ref_results['overlaps'])
     # ensure that results end up 2D (not 3D)
-    data = np.zeros((ref_size, fit_size), dtype=object)
+    # Since each reference molecule can have a different number of color atoms,
+    # we store the arrays as objects and use a mask in the grouping function.
+    cao_data = np.zeros((ref_size, fit_size), dtype=object)
     for i, ref_results in enumerate(results['overlaps']):
         for j, fit_results in enumerate(ref_results):
-            data[i, j] = fit_results
+            cao_data[i, j] = fit_results
     # transpose to get fit mols on first axis
-    data = np.asarray(data).transpose((1, 0))
-    data = ColorOverlap.group_ref_color_atom_overlaps(data)
+    cao_data = np.asarray(cao_data).transpose((1, 0))
+    cao_data = ColorOverlap.group_ref_color_atom_overlaps(cao_data)
+    grouped_data = process_metadata(results, ref_size, cao_data.shape[-1])
     # check that fit titles are consistent
     for fit_titles in results['fit_titles'][1:]:
         assert np.array_equal(fit_titles, results['fit_titles'][0])
     results['fit_titles'] = results['fit_titles'][0]
     # construct output dict
     h5_utils.dump(
-        {'color_atom_overlaps': data.filled(np.nan),
-         'mask': data.mask,
-         'ref_color_coords': results['ref_color_coords'],
-         'ref_color_types': results['ref_color_types'],
-         'ref_color_type_names': results['ref_color_type_names'],
+        {'color_atom_overlaps': cao_data.filled(np.nan),
+         'mask': cao_data.mask,
+         'ref_color_coords': grouped_data['ref_color_coords'].filled(np.nan),
+         'ref_color_types': grouped_data['ref_color_types'].filled(np.nan),
+         'ref_color_type_names': grouped_data[
+             'ref_color_type_names'].filled(''),
+         'ref_color_coords_mask': grouped_data['ref_color_coords'].mask,
+         'ref_color_types_mask': grouped_data['ref_color_types'].mask,
+         'ref_color_type_names_mask': grouped_data['ref_color_type_names'].mask,
          'ref_titles': results['ref_titles'],
          'fit_titles': results['fit_titles']},
         out_filename)
@@ -160,6 +167,24 @@ def check_color_consistency(primary, secondary):
             primary[key] = secondary[key]
         else:
             assert np.array_equal(primary[key], secondary[key])
+
+
+def process_metadata(results, ref_size, max_size):
+    """Process the reference molecule color atom metadata."""
+    grouped_data = {}
+    for key in ['ref_color_coords', 'ref_color_types', 'ref_color_type_names']:
+        shape = (ref_size, max_size)
+        if key == 'ref_color_coords':
+            shape += (3,)
+        if key == 'ref_color_type_names':
+            dtype = str
+        else:
+            dtype = float
+        data = np.ma.masked_all(shape, dtype=dtype)
+        for i, ref_values in enumerate(results[key]):
+            data[i, :len(ref_values)] = ref_values
+        grouped_data[key] = data
+    return grouped_data
 
 if __name__ == '__main__':
     args = get_args()

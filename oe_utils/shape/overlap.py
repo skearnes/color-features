@@ -189,7 +189,7 @@ class ColorOverlap(OEColorOverlap):
         max_size = 0
         it = np.nditer(results, flags=['multi_index', 'refs_ok'])
         for _ in it:
-            max_size = max(max_size, results[it.multi_index].size)
+            max_size = max(max_size, len(results[it.multi_index]))
 
         # build a masked array containing results
         # don't use data[it.multi_index][:result.size] because that assigns
