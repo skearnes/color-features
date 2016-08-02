@@ -137,20 +137,30 @@ class ColorOverlap(OEColorOverlap):
         colored_ref_mol = OEMol(self.ref_mol)
         OEAddColorAtoms(colored_ref_mol, self.color_ff)
         assert OECountColorAtoms(self.ref_mol) == 0
+        ref_color_coords = []
+        ref_color_types = []
+        ref_color_type_names = []
         for ref_color_atom in OEGetColorAtoms(colored_ref_mol):
             coords = colored_ref_mol.GetCoords(ref_color_atom)
             ref_color_type = OEGetColorType(ref_color_atom)
+            ref_color_type_name = self.color_ff.GetTypeName(ref_color_type)
+            ref_color_coords.append(coords)
+            ref_color_types.append(ref_color_type)
+            ref_color_type_names.append(ref_color_type_name)
             # Use OEMol instead of CreateCopy because otherwise colored_ref_mol
             # color atoms are deleted by OERemoveColorAtoms
             this_ref_mol = OEMol(colored_ref_mol)
             OERemoveColorAtoms(this_ref_mol)
             OEAddColorAtom(this_ref_mol, OEFloatArray(coords), ref_color_type,
-                           self.color_ff.GetTypeName(ref_color_type))
+                           ref_color_type_name)
             assert OECountColorAtoms(this_ref_mol) == 1
             super(ColorOverlap, self).SetRefMol(this_ref_mol)
             results.append(self.overlap(fit_mol))
         super(ColorOverlap, self).SetRefMol(self.ref_mol)  # reset ref mol
-        return results
+        return {'overlaps': results,
+                'ref_color_coords': ref_color_coords,
+                'ref_color_types': ref_color_types,
+                'ref_color_type_names': ref_color_type_names}
 
     @staticmethod
     def group_ref_color_atom_overlaps(results):

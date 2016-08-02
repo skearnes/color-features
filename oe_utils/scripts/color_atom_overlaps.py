@@ -8,6 +8,7 @@ __copyright__ = "Copyright 2014, Stanford University"
 __license__ = "3-clause BSD"
 
 import argparse
+import collections
 from functools import partial
 import numpy as np
 
@@ -60,6 +61,9 @@ def main(ref_filename, fit_filename, out_filename, cluster_id=None,
     """
     color_overlap_kwargs, rocs_kwargs = {}, {}  # TODO: get from command line
     results = []
+    ref_color_coords = []
+    ref_color_types = []
+    ref_color_type_names = []
     ref_reader = MolReader(ref_filename)
     call = get_map(cluster_id)
     ref_size, fit_size = 0, 0
@@ -70,10 +74,16 @@ def main(ref_filename, fit_filename, out_filename, cluster_id=None,
         worker_results = call(f, fit_reader.get_batches(batch_size))
         # store each result as a separate array
         ref_results = []
-        for worker_result in worker_results:
-            for this_worker_result in worker_result:
-                ref_results.append(this_worker_result)
+        worker_color_coords = None
+        for ref_result, color_coords in worker_results:
+            for fit_result in ref_result:
+                ref_results.append(fit_result)
+            if worker_color_coords is None:
+                worker_color_coords = color_coords
+            else:
+                assert np.allclose(worker_color_coords, color_coords)
         results.append(ref_results)
+        ref_color_coords.append(worker_color_coords)
         ref_size += 1
         fit_size = len(ref_results)
     # ensure that results end up 2D
@@ -84,8 +94,13 @@ def main(ref_filename, fit_filename, out_filename, cluster_id=None,
     # transpose to get fit mols on first axis
     data = np.asarray(data).transpose((1, 0))
     data = ColorOverlap.group_ref_color_atom_overlaps(data)
-    h5_utils.dump({'color_atom_overlaps': data.filled(np.nan),
-                   'mask': data.mask}, out_filename)
+    h5_utils.dump(
+        {'color_atom_overlaps': data.filled(np.nan),
+         'mask': data.mask,
+         'ref_color_coords': ref_color_coords,
+         'ref_color_types': ref_color_types,
+         'ref_color_type_names': ref_color_type_names},
+        out_filename)
 
 
 def worker(fit_mols, ref_mol, rocs_kwargs=None, color_overlap_kwargs=None):
@@ -115,17 +130,32 @@ def worker(fit_mols, ref_mol, rocs_kwargs=None, color_overlap_kwargs=None):
     rocs_engine = ROCS(**rocs_kwargs)
     overlap_engine = ColorOverlap(**color_overlap_kwargs)
     rocs_engine.SetRefMol(ref_mol)
-    ref_results = []
+    ref_results = collections.defaultdict(list)
     for fit_mol in fit_mols:
         rocs_result = rocs_engine.get_best_overlay(fit_mol)
         ref_conf, fit_conf = rocs_engine.get_aligned_confs(
             ref_mol, fit_mol, rocs_result)
         overlap_engine.SetRefMol(ref_conf)
-        overlaps = overlap_engine.get_ref_color_atom_overlaps(
-            fit_conf)
+        overlap_results = overlap_engine.get_ref_color_atom_overlaps(fit_conf)
         fit_results = np.asarray([overlap.color_overlap
-                                 for overlap in overlaps], dtype=float)
-        ref_results.append(fit_results)
+                                 for overlap in overlap_results['overlaps']],
+                                 dtype=float)
+        ref_results['overlaps'].append(fit_results)
+        # Check that reference molecule color atoms are consistent.
+        if 'ref_color_coords' not in ref_results:
+            ref_results['ref_color_coords'] = overlap_results[
+                'ref_color_coords']
+            ref_results['ref_color_types'] = overlap_results[
+                'ref_color_types']
+            ref_results['ref_color_type_names'] = overlap_results[
+                'ref_color_type_names']
+        else:
+            assert np.allclose(ref_results['ref_color_coords'],
+                               overlap_results['ref_color_coords'])
+            assert np.array_equal(ref_results['ref_color_types'],
+                                  overlap_results['ref_color_types'])
+            assert np.array_equal(ref_results['ref_color_type_names'],
+                                  overlap_results['ref_color_type_names'])
     return ref_results
 
 if __name__ == '__main__':
