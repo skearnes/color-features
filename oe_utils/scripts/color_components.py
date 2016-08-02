@@ -68,17 +68,23 @@ def main(ref_filename, fit_filename, out_filename, cluster_id=None,
         f = partial(worker, ref_mol=ref_mol, rocs_kwargs=rocs_kwargs,
                     color_overlap_kwargs=color_overlap_kwargs)
         worker_results = call(f, fit_reader.get_batches(batch_size))
-        ref_results = []
+        ref_results = collections.defaultdict(list)
         for worker_result in worker_results:
             for fit_result in worker_result:
-                ref_results.append(fit_result['overlaps'])
-                results['fit_titles'].append(fit_result['fit_title'])
+                ref_results['overlaps'].append(fit_result['overlaps'])
+                ref_results['fit_titles'].append(fit_result['fit_title'])
                 check_color_consistency(results, fit_result)
-        results['overlaps'].append(ref_results)
+        for key, value in ref_results.iteritems():
+            results[key].append(value)
         results['ref_titles'].append(ref_mol.GetTitle())
     # transpose to get fit mols on first axis
     data = np.asarray(results['overlaps']).transpose((1, 0, 2))
     data = ColorOverlap.group_color_component_results(data)
+    # check that fit titles are consistent
+    for fit_titles in results['fit_titles'][1:]:
+        assert np.array_equal(fit_titles, results['fit_titles'][0])
+    results['fit_titles'] = results['fit_titles'][0]
+    # add meta information to output dict
     for key in ['color_types', 'color_type_names', 'ref_titles', 'fit_titles']:
         data[key] = results[key]
     h5_utils.dump(data, out_filename)

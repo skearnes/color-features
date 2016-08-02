@@ -74,7 +74,7 @@ def main(ref_filename, fit_filename, out_filename, cluster_id=None,
         for worker_result in worker_results:
             for fit_result in worker_result:
                 ref_results['overlaps'].append(fit_result['overlaps'])
-                results['fit_titles'].append(fit_result['fit_title'])
+                ref_results['fit_titles'].append(fit_result['fit_title'])
                 check_color_consistency(ref_results, fit_result)
         for key, value in ref_results.iteritems():
             results[key].append(value)
@@ -89,6 +89,11 @@ def main(ref_filename, fit_filename, out_filename, cluster_id=None,
     # transpose to get fit mols on first axis
     data = np.asarray(data).transpose((1, 0))
     data = ColorOverlap.group_ref_color_atom_overlaps(data)
+    # check that fit titles are consistent
+    for fit_titles in results['fit_titles'][1:]:
+        assert np.array_equal(fit_titles, results['fit_titles'][0])
+    results['fit_titles'] = results['fit_titles'][0]
+    # construct output dict
     h5_utils.dump(
         {'color_atom_overlaps': data.filled(np.nan),
          'mask': data.mask,
@@ -151,7 +156,7 @@ def check_color_consistency(primary, secondary):
     """Check that reference molecule color atoms are consistent."""
     keys = ['ref_color_coords', 'ref_color_types', 'ref_color_type_names']
     for key in keys:
-        if key not in primary
+        if key not in primary:
             primary[key] = secondary[key]
         else:
             assert np.array_equal(primary[key], secondary[key])
