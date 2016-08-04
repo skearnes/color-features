@@ -10,4 +10,4 @@ echo PREFIX $prefix
 echo PYTHON `which python`
 
 cd $PBS_O_WORKDIR
-time python ~/git/oe-utils/oe_utils/scripts/color_components.py -r $ref -f $fit -o ${prefix}-color_components.h5
+time python ~/git/color-features/oe_utils/scripts/color_components.py -r $ref -f $fit -o ${prefix}-color_components.h5
