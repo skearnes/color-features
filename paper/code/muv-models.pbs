@@ -24,4 +24,4 @@ time python ~/git/color-features/paper/code/models.py \
     --model ${model} \
     --cycle \
     --n_jobs $PBS_NP \
-    --output muv-${dataset}-${model}-${subset}.pkl.gz
+    --prefix muv-${dataset}-${model}-${subset}

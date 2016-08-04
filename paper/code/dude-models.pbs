@@ -23,4 +23,4 @@ time python ~/git/color-features/paper/code/models.py \
     --dataset ${dataset} \
     --model ${model} \
     --n_jobs $PBS_NP \
-    --output dude-${dataset}-${model}-${subset}.pkl.gz
+    --prefix dude-${dataset}-${model}-${subset}

@@ -24,4 +24,4 @@ time python ~/git/color-features/code/models.py \
     --model ${model} \
     --cycle \
     --n_jobs $PBS_NP \
-    --output chembl-${dataset}-${model}-${subset}.pkl.gz
+    --prefix chembl-${dataset}-${model}-${subset}
