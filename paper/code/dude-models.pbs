@@ -18,9 +18,9 @@ time python ~/git/color-features/paper/code/models.py \
     --rocs_inactives ${ROOT}/${subset}/decoys/rocs/%s-decoys-rocs.h5 \
     --color_components_actives ${ROOT}/${subset}/actives/color_components/%s-actives-color_components.h5 \
     --color_components_inactives ${ROOT}/${subset}/decoys/color_components/%s-decoys-color_components.h5 \
-    --color_atom_overlaps_actives ${ROOT}/${subset}/actives/color_atom_overlap/%s-actives-color_atom_overlaps.h5 \
-    --color_atom_overlaps_inactives ${ROOT}/${subset}/decoys/color_atom_overlap/%s-decoys-color_atom_overlaps.h5 \
+    --color_atom_overlaps_actives ${ROOT}/${subset}/actives/color_atom_overlaps/%s-actives-color_atom_overlaps.h5 \
+    --color_atom_overlaps_inactives ${ROOT}/${subset}/decoys/color_atom_overlaps/%s-decoys-color_atom_overlaps.h5 \
     --dataset ${dataset} \
     --model ${model} \
     --n_jobs $PBS_NP \
-    --output dude-${dataset}-${model}-${subset}.pkl.gz
+    --prefix dude-${dataset}-${model}-${subset}

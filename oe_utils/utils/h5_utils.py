@@ -7,7 +7,10 @@ __copyright__ = "Copyright 2014, Stanford University"
 __license__ = "3-clause BSD"
 
 import h5py
+import logging
 import numpy as np
+
+logging.getLogger().setLevel(logging.INFO)
 
 
 def load(filename, load_all=True):
@@ -21,6 +24,7 @@ def load(filename, load_all=True):
     load_all : bool, optional (default True)
         Load all datasets into a dictionary.
     """
+    logging.info('Loading %s', filename)
     if load_all:
         with h5py.File(filename) as f:
             data = {key: np.asarray(f[key]) for key in f.keys()}
