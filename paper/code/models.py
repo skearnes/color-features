@@ -46,7 +46,7 @@ flags.DEFINE_string('color_atom_overlaps_inactives', None,
 flags.DEFINE_string('dataset', None, 'Dataset.')
 flags.DEFINE_string('dataset_file', None, 'Filename containing datasets.')
 flags.DEFINE_string('model', 'logistic', 'Model type.')
-flags.DEFINE_string('output', None, 'Output filename.')
+flags.DEFINE_string('prefix', None, 'Prefix for output filenames.')
 flags.DEFINE_boolean('skip_failures', True, 'Skip failed datasets.')
 flags.DEFINE_boolean('cycle', False, 'If True, use cyclic validation.')
 flags.DEFINE_integer('n_jobs', 1, 'Number of parallel jobs.')
@@ -204,18 +204,18 @@ def get_cv_metrics(y_true, y_pred):
         assert len(yt) == len(yp)
         fold_metrics['auc'].append(metrics.roc_auc_score(yt, yp))
         fpr, tpr, _ = metrics.roc_curve(yt, yp)
-        for x in [0.005, 0.01, 0.02, 0.05]:
+        for x in [0.005, 0.01, 0.02, 0.05, 0.1, 0.2]:
             fold_metrics['e-%g' % x].append(roc_enrichment(fpr, tpr, x))
     return fold_metrics
 
 
-def add_rows(features, auc, rows, dataset, index=None):
+def add_rows(features, scores, rows, dataset, index=None):
     """Record per-fold and averaged cross-validation results."""
-    for fold in range(len(auc['auc'])):
+    for fold in range(len(scores['auc'])):
         row = {'dataset': dataset, 'features': features, 'fold': fold}
         if index is not None:
             row['index'] = index
-        for key, values in auc.iteritems():
+        for key, values in scores.iteritems():
             row[key] = values[fold]
         rows.append(row)
 
@@ -223,23 +223,42 @@ def add_rows(features, auc, rows, dataset, index=None):
     row = {'dataset': dataset, 'features': features, 'fold': 'all'}
     if index is not None:
         row['index'] = index
-    for key, values in auc.iteritems():
+    for key, values in scores.iteritems():
         row[key] = np.mean(values)
     rows.append(row)
 
 
-def build_model(features, labels, cv):
-    """Get cross-validation predictions for a single model."""
-    y_pred = []
+def build_model(features, labels, cv, name, index=None, rocs=False):
+    """Get cross-validation metrics for a single model."""
+    fold_y_pred = []
+    fold_y_true = []
     assert features.ndim == 2
-    for train, test in cv:
-        model = get_model()
-        model.fit(features[train], labels[train])
-        try:
-            y_pred.append(model.predict_proba(features[test])[:, 1])
-        except AttributeError:
-            y_pred.append(model.decision_function(features[test]))
-    return y_pred
+    for fold, (train, test) in enumerate(cv):
+        prefix = '%s-%s-fold-%d' % (FLAGS.prefix, name, fold)
+        if index is not None:
+            prefix += '-ref-%d' % index
+        if rocs:
+            y_pred = features[test].squeeze()
+        else:
+            model = get_model()
+            model.fit(features[train], labels[train])
+            # Save trained models.
+            with gzip.open('%s-model.pkl.gz' % prefix, 'wb') as f:
+                pickle.dump(model, f, pickle.HIGHEST_PROTOCOL)
+            try:
+                y_pred = model.predict_proba(features[test])[:, 1]
+            except AttributeError:
+                y_pred = model.decision_function(features[test])
+        fold_y_pred.append(y_pred)
+        y_true = labels[test]
+        fold_y_true.append(y_true)
+        # Save model output.
+        assert np.array_equal(y_true.shape, y_pred.shape)
+        assert y_true.ndim == 1
+        with gzip.open('%s-output.pkl.gz' % prefix, 'wb') as f:
+            pickle.dump(pd.DataFrame({'y_true': y_true, 'y_pred': y_pred}), f,
+                        pickle.HIGHEST_PROTOCOL)
+    return get_cv_metrics(fold_y_true, fold_y_pred)
 
 
 def build_models(features, labels, rows, dataset, index=None):
@@ -250,85 +269,75 @@ def build_models(features, labels, rows, dataset, index=None):
     """
     cv = get_cv(labels)
 
-    y_true = [labels[test] for _, test in cv]
-
     # Baseline: ROCS TanimotoCombo.
-    y_pred = []
-    for train, test in cv:
-        y_pred.append(features['combo_tanimoto'][test].squeeze())
-    auc = get_cv_metrics(y_true, y_pred)
-    logging.info('ROCS TanimotoCombo: %.3f', np.mean(auc['auc']))
-    add_rows('rocs', auc, rows, dataset, index)
+    scores = build_model(features['combo_tanimoto'], labels, cv, 'rocs',
+                         index=index, rocs=True)
+    logging.info('ROCS TanimotoCombo: %.3f', np.mean(scores['auc']))
+    add_rows('rocs', scores, rows, dataset, index)
 
     # Baseline: ROCS TverskyCombo.
-    y_pred = []
-    for train, test in cv:
-        y_pred.append(features['combo_tversky'][test].squeeze())
-    auc = get_cv_metrics(y_true, y_pred)
-    logging.info('ROCS TverskyCombo: %.3f', np.mean(auc['auc']))
-    add_rows('rocs_tversky', auc, rows, dataset, index)
+    scores = build_model(features['combo_tversky'], labels, cv, 'rocs_tversky',
+                         index=index, rocs=True)
+    logging.info('ROCS TverskyCombo: %.3f', np.mean(scores['auc']))
+    add_rows('rocs_tversky', scores, rows, dataset, index)
 
     # ROCS shape + color (Tanimoto)
-    y_pred = build_model(np.hstack((features['shape_tanimoto'],
+    scores = build_model(np.hstack((features['shape_tanimoto'],
                                     features['color_tanimoto'])),
-                         labels, cv)
-    auc = get_cv_metrics(y_true, y_pred)
-    logging.info('ROCS shape + color (Tanimoto): %.3f', np.mean(auc['auc']))
-    add_rows('shape_color', auc, rows, dataset, index)
+                         labels, cv, 'shape_color', index=index)
+    logging.info('ROCS shape + color (Tanimoto): %.3f', np.mean(scores['auc']))
+    add_rows('shape_color', scores, rows, dataset, index)
 
     # ROCS shape + color (Tversky)
-    y_pred = build_model(np.hstack((features['shape_tversky'],
+    scores = build_model(np.hstack((features['shape_tversky'],
                                     features['color_tversky'])),
-                         labels, cv)
-    auc = get_cv_metrics(y_true, y_pred)
-    logging.info('ROCS shape + color (Tversky): %.3f', np.mean(auc['auc']))
-    add_rows('shape_color_tversky', auc, rows, dataset, index)
+                         labels, cv, 'shape_color_tversky', index=index)
+    logging.info('ROCS shape + color (Tversky): %.3f', np.mean(scores['auc']))
+    add_rows('shape_color_tversky', scores, rows, dataset, index)
 
     # ROCS shape + color components (Tanimoto).
-    y_pred = build_model(np.hstack((features['shape_tanimoto'],
+    scores = build_model(np.hstack((features['shape_tanimoto'],
                                     features['color_components'])),
-                         labels, cv)
-    auc = get_cv_metrics(y_true, y_pred)
+                         labels, cv, 'shape_color_components', index=index)
     logging.info('ROCS shape + color components (Tanimoto): %.3f',
-                 np.mean(auc['auc']))
-    add_rows('shape_color_components', auc, rows, dataset, index)
+                 np.mean(scores['auc']))
+    add_rows('shape_color_components', scores, rows, dataset, index)
 
     # ROCS shape + color components (Tversky).
-    y_pred = build_model(np.hstack((features['shape_tversky'],
+    scores = build_model(np.hstack((features['shape_tversky'],
                                     features['color_components_tversky'])),
-                         labels, cv)
-    auc = get_cv_metrics(y_true, y_pred)
+                         labels, cv, 'shape_color_components_tversky',
+                         index=index)
     logging.info('ROCS shape + color components (Tversky): %.3f',
-                 np.mean(auc['auc']))
-    add_rows('shape_color_components_tversky', auc, rows, dataset, index)
+                 np.mean(scores['auc']))
+    add_rows('shape_color_components_tversky', scores, rows, dataset, index)
 
     # ROCS shape + color atom overlaps
-    y_pred = build_model(np.hstack((features['shape_tanimoto'],
+    scores = build_model(np.hstack((features['shape_tanimoto'],
                                     features['color_atom_overlaps'])),
-                         labels, cv)
-    auc = get_cv_metrics(y_true, y_pred)
-    logging.info('ROCS shape + color overlaps: %.3f', np.mean(auc['auc']))
-    add_rows('shape_color_overlaps', auc, rows, dataset, index)
+                         labels, cv, 'shape_color_overlaps', index=index)
+    logging.info('ROCS shape + color overlaps: %.3f', np.mean(scores['auc']))
+    add_rows('shape_color_overlaps', scores, rows, dataset, index)
 
     # ROCS shape + color components + color atom overlaps (Tanimoto)
-    y_pred = build_model(np.hstack((features['shape_tanimoto'],
+    scores = build_model(np.hstack((features['shape_tanimoto'],
                                     features['color_components'],
                                     features['color_atom_overlaps'])),
-                         labels, cv)
-    auc = get_cv_metrics(y_true, y_pred)
+                         labels, cv, 'shape_color_components_overlaps',
+                         index=index)
     logging.info('ROCS shape + color components and overlaps (Tanimoto): %.3f',
-                 np.mean(auc['auc']))
-    add_rows('shape_color_components_overlaps', auc, rows, dataset, index)
+                 np.mean(scores['auc']))
+    add_rows('shape_color_components_overlaps', scores, rows, dataset, index)
 
     # ROCS shape + color components + color atom overlaps (Tversky)
-    y_pred = build_model(np.hstack((features['shape_tversky'],
+    scores = build_model(np.hstack((features['shape_tversky'],
                                     features['color_components_tversky'],
                                     features['color_atom_overlaps'])),
-                         labels, cv)
-    auc = get_cv_metrics(y_true, y_pred)
+                         labels, cv, 'shape_color_components_tversky_overlaps',
+                         index=index)
     logging.info('ROCS shape + color components and overlaps (Tversky): %.3f',
-                 np.mean(auc['auc']))
-    add_rows('shape_color_components_tversky_overlaps', auc, rows, dataset,
+                 np.mean(scores['auc']))
+    add_rows('shape_color_components_tversky_overlaps', scores, rows, dataset,
              index)
 
 
@@ -375,7 +384,7 @@ def main():
         else:
             build_models(features, labels, rows, dataset)
     df = pd.DataFrame(rows)
-    with gzip.open(FLAGS.output, 'wb') as f:
+    with gzip.open('%s.pkl.gz' % FLAGS.prefix, 'wb') as f:
         pickle.dump(df, f, pickle.HIGHEST_PROTOCOL)
 
 if __name__ == '__main__':
@@ -385,6 +394,6 @@ if __name__ == '__main__':
     flags.MarkFlagAsRequired('color_components_inactives')
     flags.MarkFlagAsRequired('color_atom_overlaps_actives')
     flags.MarkFlagAsRequired('color_atom_overlaps_inactives')
-    flags.MarkFlagAsRequired('output')
+    flags.MarkFlagAsRequired('prefix')
     FLAGS(sys.argv)
     main()
