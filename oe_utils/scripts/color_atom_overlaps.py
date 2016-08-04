@@ -188,8 +188,6 @@ def process_metadata(results, ref_size, max_size):
         for i, ref_values in enumerate(results[key]):
             data[i, :len(ref_values)] = ref_values
         grouped_data[key] = data
-    import IPython
-    IPython.embed()
     return grouped_data
 
 if __name__ == '__main__':
