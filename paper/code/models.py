@@ -104,7 +104,8 @@ def load_features_and_labels(dataset):
 
     for feature in ['shape_tanimoto', 'color_tanimoto', 'shape_overlap',
                     'color_overlap', 'ref_self_shape', 'ref_self_color',
-                    'fit_self_shape', 'fit_self_color']:
+                    'fit_self_shape', 'fit_self_color', 'ref_titles',
+                    'fit_titles']:
         features[feature] = np.concatenate((rocs_actives[feature],
                                             rocs_inactives[feature]))
     features['combo_tanimoto'] = np.true_divide(
@@ -125,6 +126,7 @@ def load_features_and_labels(dataset):
     # Color components.
     cc_actives = h5_utils.load(FLAGS.color_components_actives % dataset)
     cc_inactives = h5_utils.load(FLAGS.color_components_inactives % dataset)
+    check_mol_titles(features, cc_actives, cc_inactives)
     features['color_components'] = np.concatenate((
         cc_actives['color_tanimoto'], cc_inactives['color_tanimoto'])).squeeze()
 
@@ -146,11 +148,16 @@ def load_features_and_labels(dataset):
     # Color atom overlaps.
     cao_actives = h5_utils.load(FLAGS.color_atom_overlaps_actives % dataset)
     cao_inactives = h5_utils.load(FLAGS.color_atom_overlaps_inactives % dataset)
+    check_mol_titles(features, cao_actives, cao_inactives)
     features['color_atom_overlaps'] = np.concatenate((
         cao_actives['color_atom_overlaps'],
         cao_inactives['color_atom_overlaps'])).squeeze()
     features['color_atom_overlaps_mask'] = np.concatenate((
         cao_actives['mask'], cao_inactives['mask'])).squeeze()
+
+    # Remove titles from features.
+    for key in ['ref_titles', 'fit_titles']:
+        del features[key]
 
     # Sanity checks.
     for _, value in features.iteritems():
@@ -158,6 +165,13 @@ def load_features_and_labels(dataset):
         assert value.shape[0] == labels.size
 
     return features, labels
+
+
+def check_mol_titles(features, actives, inactives):
+    """Compare molecule titles to make sure molecule order is consistent."""
+    for key in ['ref_titles', 'fit_titles']:
+        titles = np.concatenate((actives[key], inactives[key]))
+        assert np.array_equal(features[key], titles)
 
 
 def get_cv(labels):
