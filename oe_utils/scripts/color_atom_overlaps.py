@@ -171,19 +171,25 @@ def check_color_consistency(primary, secondary):
 
 def process_metadata(results, ref_size, max_size):
     """Process the reference molecule color atom metadata."""
+    # Maximum length of color type names.
+    max_length = max([max([len(type_name)
+                           for type_name in type_names])
+                      for type_names in results['ref_color_type_names']])
     grouped_data = {}
     for key in ['ref_color_coords', 'ref_color_types', 'ref_color_type_names']:
         shape = (ref_size, max_size)
         if key == 'ref_color_coords':
             shape += (3,)
         if key == 'ref_color_type_names':
-            dtype = str
+            dtype = 'S' + str(max_length)
         else:
             dtype = float
         data = np.ma.masked_all(shape, dtype=dtype)
         for i, ref_values in enumerate(results[key]):
             data[i, :len(ref_values)] = ref_values
         grouped_data[key] = data
+    import IPython
+    IPython.embed()
     return grouped_data
 
 if __name__ == '__main__':
