@@ -14,9 +14,11 @@ def main():
         df = pickle.load(f)
     table = ''
     for _, row in df.iterrows():
-        table += '%s & %d & %d & %d \\\\\n' % (
-            row['dataset'], row['actives'], row['decoys'],
-            row['actives'] + row['decoys'])
+        actives = row['actives']
+        decoys = row['decoys']
+        f_active = 100 * float(actives) / (actives + decoys)
+        table += '%s & %d & %d & %.0f \\\\\n' % (
+            row['dataset'], actives, decoys, f_active)
     print table
 
 if __name__ == '__main__':
