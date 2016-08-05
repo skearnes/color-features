@@ -17,7 +17,7 @@ def main():
         actives = row['actives']
         decoys = row['decoys']
         f_active = 100 * float(actives) / (actives + decoys)
-        table += '%s & %d & %d & %.0f \\\\\n' % (
+        table += '%s & %d & %d & %.1f \\\\\n' % (
             row['dataset'], actives, decoys, f_active)
     print table
 
