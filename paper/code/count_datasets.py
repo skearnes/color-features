@@ -27,8 +27,8 @@ def count_mols(filename):
     max_confs = 0
     for mol in reader.get_mols():
         count += 1
-        if mol.GetNumConfs() > max_confs:
-            max_confs = mol.GetNumConfs()
+        if mol.NumConfs() > max_confs:
+            max_confs = mol.NumConfs()
     logging.info('%s:\t%d\t%d', filename, count, max_confs)
     return count
 
@@ -40,7 +40,7 @@ def main():
     table = ''
     for dataset in datasets:
         a_filename = os.path.join(FLAGS.actives, '%s-actives.oeb.gz' % dataset)
-        d_filename = os.path.join(FLAGS.actives, '%s-decoys.oeb.gz' % dataset)
+        d_filename = os.path.join(FLAGS.decoys, '%s-decoys.oeb.gz' % dataset)
         actives = count_mols(a_filename)
         decoys = count_mols(d_filename)
 
@@ -51,6 +51,7 @@ def main():
     df = pd.DataFrame(rows)
     with gzip.open(FLAGS.output, 'wb') as f:
         pickle.dump(df, f, pickle.HIGHEST_PROTOCOL)
+    print table
 
 if __name__ == '__main__':
     flags.MarkFlagAsRequired('datasets')
