@@ -46,15 +46,17 @@ def check_features(mol, color_ff, weights):
         masked[key] = np.ma.masked_array(values, mask=mask)
     for i, color_atom in enumerate(OEGetColorAtoms(mol)):
         # Color atom coordinates.
-        assert np.array_equal(masked['ref_color_coords'][i],
-                              mol.GetCoords(color_atom))
+        coords = mol.GetCoords(color_atom)
+        assert np.array_equal(masked['ref_color_coords'][i], coords)
         # Color atom type.
         color_type = OEGetColorType(color_atom)
+        color_type_name = color_ff.GetTypeName(color_type)
         assert masked['ref_color_types'][i] == color_type
-        assert masked['ref_color_type_names'][i] == color_ff.GetTypeName(
-            color_type)
+        assert masked['ref_color_type_names'][i] == color_type_name
         # Assign weight to this atom.
         color_atom.SetFloatData('feature_weight', weights[i])
+        logging.info('%d\t%s\t%d\t%s\t%g', i, str(coords), color_type,
+                     color_type_name, weights[i])
 
 
 def main():
