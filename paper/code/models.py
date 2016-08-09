@@ -172,6 +172,7 @@ def check_mol_titles(features, actives, inactives):
     for key in ['ref_titles', 'fit_titles']:
         titles = np.concatenate((actives[key], inactives[key]))
         assert np.array_equal(features[key], titles)
+        logging.info('Molecule titles match')
 
 
 def get_cv(labels):
