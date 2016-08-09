@@ -13,7 +13,7 @@ cd $PBS_O_WORKDIR
 
 ROOT=/home/kearnes/thesis/color-features-rerun/chembl
 
-time python ~/git/color-features/code/models.py \
+time python ~/git/color-features/paper/code/models.py \
     --rocs_actives ${ROOT}/${subset}/actives/rocs/%s-actives-rocs.h5 \
     --rocs_inactives ${ROOT}/${subset}/decoys/rocs/%s-decoys-rocs.h5 \
     --color_components_actives ${ROOT}/${subset}/actives/color_components/%s-actives-color_components.h5 \
