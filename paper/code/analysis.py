@@ -137,6 +137,7 @@ def get_output_filename(dataset, model, subset, features, fold_idx, ref_idx):
     if FLAGS.cycle:
         filename = os.path.join(
             '%s-%s' % (FLAGS.root, subset),
+            dataset,
             'fold-%d' % fold_idx,
             '%s-%s-%s-%s-%s-fold-%d-ref-%d-output.pkl.gz' % (
                 FLAGS.prefix, dataset, model, subset, features,
@@ -145,6 +146,7 @@ def get_output_filename(dataset, model, subset, features, fold_idx, ref_idx):
         assert ref_idx == 0
         filename = os.path.join(
             '%s-%s' % (FLAGS.root, subset),
+            dataset,
             'fold-%d' % fold_idx,
             '%s-%s-%s-%s-%s-fold-%d-output.pkl.gz' % (
                 FLAGS.prefix, dataset, model, subset, features,
@@ -286,7 +288,7 @@ def main():
         assert FLAGS.cycle
     else:
         raise ValueError(FLAGS.prefix)
-    
+
     # Load data from output or previously processed.
     models = ['logistic', 'random_forest', 'svm']
     if FLAGS.reload is not None:
@@ -303,13 +305,13 @@ def main():
                 df['subset'] = subset
                 data.append(df)
         data = pd.concat(data)
-        
+
         # Save processed data.
         filename = '%s-processed.pkl.gz' % FLAGS.prefix
         logging.info('Saving processed data to %s', filename)
         with gzip.open(filename, 'wb') as f:
-            pickle.dump(data, f, pickle.HIGHEST_PROTOCOL)          
-    
+            pickle.dump(data, f, pickle.HIGHEST_PROTOCOL)
+
     # Only keep 5-fold mean information.
     mask = data['fold'] == 'all'
     data = data[mask]
