@@ -28,6 +28,7 @@ from sklearn import ensemble
 from sklearn import grid_search
 from sklearn import linear_model
 from sklearn import metrics
+from sklearn import preprocessing
 from sklearn import svm
 import sys
 
@@ -50,6 +51,7 @@ flags.DEFINE_string('prefix', None, 'Prefix for output filenames.')
 flags.DEFINE_boolean('skip_failures', True, 'Skip failed datasets.')
 flags.DEFINE_boolean('cycle', False, 'If True, use cyclic validation.')
 flags.DEFINE_integer('n_jobs', 1, 'Number of parallel jobs.')
+flags.DEFINE_string('scaling', None, 'Type of feature scaling.')
 FLAGS = flags.FLAGS
 
 logging.getLogger().setLevel(logging.INFO)
@@ -243,27 +245,47 @@ def add_rows(features, scores, rows, dataset, index=None):
     rows.append(row)
 
 
+def scale_features(features, train):
+    """Scale features, using test set to learn parameters.
+
+    Returns:
+        Scaled copy of features.
+    """
+    if FLAGS.scaling is None:
+        return features
+    logging.info('Scaling features with %s', FLAGS.scaling)
+    if FLAGS.scaling == 'max_abs':
+        scaler = preprocessing.MaxAbsScaler()
+    elif FLAGS.scaling == 'standard':
+        scaler = preprocessing.StandardScaler()
+    else:
+        raise ValueError('Unrecognized scaling %s' % FLAGS.scaling)
+    scaler.fit(features[train])
+    return scaler.transform(features)
+
+
 def build_model(features, labels, cv, name, index=None, rocs=False):
     """Get cross-validation metrics for a single model."""
     fold_y_pred = []
     fold_y_true = []
     assert features.ndim == 2
     for fold, (train, test) in enumerate(cv):
+        scaled_features = scale_features(features, train)
         prefix = '%s-%s-fold-%d' % (FLAGS.prefix, name, fold)
         if index is not None:
             prefix += '-ref-%d' % index
         if rocs:
-            y_pred = features[test].squeeze()
+            y_pred = scaled_features[test].squeeze()
         else:
             model = get_model()
-            model.fit(features[train], labels[train])
+            model.fit(scaled_features[train], labels[train])
             # Save trained models.
             with gzip.open('%s-model.pkl.gz' % prefix, 'wb') as f:
                 pickle.dump(model, f, pickle.HIGHEST_PROTOCOL)
             try:
-                y_pred = model.predict_proba(features[test])[:, 1]
+                y_pred = model.predict_proba(scaled_features[test])[:, 1]
             except AttributeError:
-                y_pred = model.decision_function(features[test])
+                y_pred = model.decision_function(scaled_features[test])
         fold_y_pred.append(y_pred)
         y_true = labels[test]
         fold_y_true.append(y_true)

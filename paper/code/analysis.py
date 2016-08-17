@@ -23,6 +23,7 @@ flags.DEFINE_integer('num_folds', 5, 'Number of cross-validation folds.')
 flags.DEFINE_boolean('cycle', False,
                      'If True, expect multiple query molecules.')
 flags.DEFINE_string('reload', None, 'Load previously analyzed results.')
+flags.DEFINE_string('subset', None, 'Subset.')
 FLAGS = flags.FLAGS
 
 logging.getLogger().setLevel(logging.INFO)
@@ -288,6 +289,8 @@ def main():
         assert FLAGS.cycle
     else:
         raise ValueError(FLAGS.prefix)
+    if FLAGS.subset is not None:
+        subsets = [FLAGS.subset]
 
     # Load data from output or previously processed.
     models = ['logistic', 'random_forest', 'svm']
