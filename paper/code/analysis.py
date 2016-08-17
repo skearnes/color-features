@@ -1,5 +1,9 @@
-"""Analyze results."""
+"""Analyze results.
 
+Use the saved model output to calculate AUC and other metrics.
+"""
+
+import collections
 import cPickle as pickle
 import gflags as flags
 import gzip
@@ -7,6 +11,7 @@ import logging
 import numpy as np
 import os
 import pandas as pd
+from sklearn import metrics
 from statsmodels.stats import proportion
 import sys
 
@@ -14,6 +19,11 @@ flags.DEFINE_string('root', None, 'Root directory containing model results.')
 flags.DEFINE_string('dataset_file', None, 'Filename containing datasets.')
 flags.DEFINE_string('prefix', None, 'Dataset prefix.')
 flags.DEFINE_boolean('tversky', False, 'If True, use Tversky features.')
+flags.DEFINE_integer('num_folds', 5, 'Number of cross-validation folds.')
+flags.DEFINE_boolean('cycle', False,
+                     'If True, expect multiple query molecules.')
+flags.DEFINE_string('reload', None, 'Load previously analyzed results.')
+flags.DEFINE_string('subset', None, 'Subset.')
 FLAGS = flags.FLAGS
 
 logging.getLogger().setLevel(logging.INFO)
@@ -25,7 +35,6 @@ FEATURES_MAP = {
     'shape_color_components': 'ST-CCT',
     'shape_color_overlaps': 'ST-CAO',
     'shape_color_components_overlaps': 'ST-CCT-CAO',
-
     'rocs_tversky': 'TverskyCombo',
     'shape_color_tversky': 'STv-CTv',
     'shape_color_components_tversky': 'STv-CCTv',
@@ -37,6 +46,113 @@ MODEL_MAP = {
     'random_forest': 'RF',
     'svm': 'SVM',
 }
+
+
+def roc_enrichment(fpr, tpr, target_fpr):
+    """Get ROC enrichment."""
+    assert fpr[0] == 0
+    assert fpr[-1] == 1
+    assert np.all(np.diff(fpr) >= 0)
+    return np.true_divide(np.interp(target_fpr, fpr, tpr), target_fpr)
+
+
+def get_cv_metrics(y_true, y_pred):
+    """Get 5-fold mean AUC."""
+    assert len(y_true) == len(y_pred)
+    fold_metrics = collections.defaultdict(list)
+    for yt, yp in zip(y_true, y_pred):
+        assert len(yt) == len(yp)
+        fold_metrics['auc'].append(metrics.roc_auc_score(yt, yp))
+        fpr, tpr, _ = metrics.roc_curve(yt, yp)
+        for x in [0.005, 0.01, 0.02, 0.05, 0.1, 0.2]:
+            fold_metrics['e-%g' % x].append(roc_enrichment(fpr, tpr, x))
+    return fold_metrics
+
+
+def add_rows(features, scores, rows, dataset, index=None):
+    """Record per-fold and averaged cross-validation results."""
+    for fold in range(len(scores['auc'])):
+        row = {'dataset': dataset, 'features': features, 'fold': fold}
+        if index is not None:
+            row['index'] = index
+        for key, values in scores.iteritems():
+            row[key] = values[fold]
+        rows.append(row)
+
+    # Averages
+    row = {'dataset': dataset, 'features': features, 'fold': 'all'}
+    if index is not None:
+        row['index'] = index
+    for key, values in scores.iteritems():
+        row[key] = np.mean(values)
+    rows.append(row)
+
+
+def load_output_and_calculate_metrics(model, subset):
+    """Calculate metrics using saved model output.
+
+    Args:
+        model: String model type (e.g. logistic).
+        subset: String query subset (e.g. omega1).
+
+    Returns:
+        DataFrame containing calculated metrics for each model/subset, including
+        per-fold and average values for each reference molecule.
+    """
+    with open(FLAGS.dataset_file) as f:
+        datasets = [line.strip() for line in f]
+    rows = []
+    for dataset in datasets:
+        ref_idx = 0
+        while True:  # Cycle through reference molecules.
+            ref_idx_exists = get_ref_rows(model, subset, dataset, ref_idx, rows)
+            if not FLAGS.cycle or not ref_idx_exists:
+                break
+            ref_idx += 1
+        logging.info('%s\t%d', dataset, ref_idx)
+    return pd.DataFrame(rows)
+
+
+def get_ref_rows(model, subset, dataset, ref_idx, rows):
+    logging.debug('ref_idx %d', ref_idx)
+    for features in FEATURES_MAP.keys():
+        logging.debug('Features: %s', features)
+        fold_y_true = []
+        fold_y_pred = []
+        for fold_idx in range(FLAGS.num_folds):
+            filename = get_output_filename(dataset, model, subset, features,
+                                           fold_idx, ref_idx)
+            if not os.path.exists(filename):
+                return False
+            logging.debug(filename)
+            with gzip.open(filename) as f:
+                df = pickle.load(f)
+            fold_y_true.append(df['y_true'].values)
+            fold_y_pred.append(df['y_pred'].values)
+        scores = get_cv_metrics(fold_y_true, fold_y_pred)
+        add_rows(features, scores, rows, dataset, index=ref_idx)
+    return True
+
+
+def get_output_filename(dataset, model, subset, features, fold_idx, ref_idx):
+    if FLAGS.cycle:
+        filename = os.path.join(
+            '%s-%s' % (FLAGS.root, subset),
+            dataset,
+            'fold-%d' % fold_idx,
+            '%s-%s-%s-%s-%s-fold-%d-ref-%d-output.pkl.gz' % (
+                FLAGS.prefix, dataset, model, subset, features,
+                fold_idx, ref_idx))
+    else:
+        assert ref_idx == 0
+        filename = os.path.join(
+            '%s-%s' % (FLAGS.root, subset),
+            dataset,
+            'fold-%d' % fold_idx,
+            '%s-%s-%s-%s-%s-fold-%d-output.pkl.gz' % (
+                FLAGS.prefix, dataset, model, subset, features,
+                fold_idx))
+    return filename
 
 
 def load_data(model, subset):
@@ -55,18 +171,19 @@ def load_data(model, subset):
 
 
 def confidence_interval(delta, metric):
-    """Calculate a 95% sign test confidence interval for differences."""
+    """Calculate a two-sided 95% confidence interval for differences."""
+    # Wilson score interval for sign test.
     num_successes = np.count_nonzero(delta > 0)
     num_trials = np.count_nonzero(delta != 0)  # Exclude zero differences.
     lower, upper = proportion.proportion_confint(
         num_successes, num_trials, alpha=0.05, method='wilson')
-    median_delta = np.median(delta)
+    median_delta = delta.median()
     if metric == 'auc':
         median = r'%.3f' % median_delta
         ci = r'(%.2f, %.2f)' % (lower, upper)
     else:
         median = r'%.0f' % median_delta
-        ci = r'(%.0f, %.0f)' % (lower, upper)
+        ci = r'(%.2f, %.2f)' % (lower, upper)
     if lower < 0.5 and upper < 0.5:
         median = r'\bfseries \color{red} ' + median
         ci = r'\bfseries \color{red} ' + ci
@@ -154,8 +271,9 @@ def data_table(data, subsets, models, kind=None, tversky=False):
                         if 'index' in df.columns:
                             assert np.array_equal(df['index'].values,
                                                   rocs_df['index'].values)
-                        delta = df[metric].values - rocs_df[metric].values
-                        row.extend(confidence_interval(delta, metric))
+                        delta = df.copy()
+                        delta[metric] -= rocs_df[metric].values
+                        row.extend(confidence_interval(delta[metric], metric))
             table.append(' & '.join(row))
     print ' \\\\\n'.join(table)
 
@@ -163,21 +281,40 @@ def data_table(data, subsets, models, kind=None, tversky=False):
 def main():
     if FLAGS.prefix == 'muv':
         subsets = ['omega1']
+        assert FLAGS.cycle
     elif FLAGS.prefix == 'dude':
         subsets = ['xtal', 'omega1']
     elif FLAGS.prefix == 'chembl':
         subsets = ['omega1']
+        assert FLAGS.cycle
     else:
         raise ValueError(FLAGS.prefix)
-    data = []
+    if FLAGS.subset is not None:
+        subsets = [FLAGS.subset]
+
+    # Load data from output or previously processed.
     models = ['logistic', 'random_forest', 'svm']
-    for model in models:
-        for subset in subsets:
-            df = load_data(model, subset)
-            df['model'] = model
-            df['subset'] = subset
-            data.append(df)
-    data = pd.concat(data)
+    if FLAGS.reload is not None:
+        logging.info('Loading processed data from %s', FLAGS.reload)
+        with gzip.open(FLAGS.reload) as f:
+            data = pickle.load(f)
+    else:
+        data = []
+        for model in models:
+            for subset in subsets:
+                logging.info('%s\t%s', model, subset)
+                df = load_output_and_calculate_metrics(model, subset)
+                df['model'] = model
+                df['subset'] = subset
+                data.append(df)
+        data = pd.concat(data)
+
+        # Save processed data.
+        filename = '%s-processed.pkl.gz' % FLAGS.prefix
+        logging.info('Saving processed data to %s', filename)
+        with gzip.open(filename, 'wb') as f:
+            pickle.dump(data, f, pickle.HIGHEST_PROTOCOL)
+
     # Only keep 5-fold mean information.
     mask = data['fold'] == 'all'
     data = data[mask]

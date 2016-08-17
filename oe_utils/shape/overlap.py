@@ -6,6 +6,7 @@ __author__ = "Steven Kearnes"
 __copyright__ = "Copyright 2014, Stanford University"
 __license__ = "3-clause BSD"
 
+import collections
 import numpy as np
 
 from openeye.oechem import *
@@ -78,9 +79,11 @@ class ColorOverlap(OEColorOverlap):
         """
         if self.color_component_engines is None:
             self.color_component_engines = self.get_color_component_engines()
-        results = []
-        for engine in self.color_component_engines:
-            results.append(engine.overlap(fit_mol))
+        results = collections.defaultdict(list)
+        for color_type, color_type_name, engine in self.color_component_engines:
+            results['overlaps'].append(engine.overlap(fit_mol))
+            results['color_types'].append(color_type)
+            results['color_type_names'].append(color_type_name)
         return results
 
     def get_color_component_engines(self):
@@ -90,10 +93,19 @@ class ColorOverlap(OEColorOverlap):
         color_component_engines = []
         color_ff = ColorForceField(self.color_ff)
         for this_color_ff in color_ff.isolate_interactions():
+            # Get a label for this force field.
+            # Assume like interactions only, and no duplicates.
+            # TODO: allow more flexibility here.
+            interactions = this_color_ff.get_interactions()
+            assert len(interactions) == 1
+            assert interactions[0][0] == interactions[0][1]
+            color_type = interactions[0][0]
+            color_type_name = this_color_ff.GetTypeName(color_type)
             engine = ColorOverlap(
                 color_ff=this_color_ff, all_color=self.GetAllColor())
             engine.SetRefMol(self.ref_mol)
-            color_component_engines.append(engine)
+            color_component_engines.append(
+                (color_type, color_type_name, engine))
         return color_component_engines
 
     @staticmethod
@@ -137,20 +149,30 @@ class ColorOverlap(OEColorOverlap):
         colored_ref_mol = OEMol(self.ref_mol)
         OEAddColorAtoms(colored_ref_mol, self.color_ff)
         assert OECountColorAtoms(self.ref_mol) == 0
+        ref_color_coords = []
+        ref_color_types = []
+        ref_color_type_names = []
         for ref_color_atom in OEGetColorAtoms(colored_ref_mol):
             coords = colored_ref_mol.GetCoords(ref_color_atom)
             ref_color_type = OEGetColorType(ref_color_atom)
+            ref_color_type_name = self.color_ff.GetTypeName(ref_color_type)
+            ref_color_coords.append(coords)
+            ref_color_types.append(ref_color_type)
+            ref_color_type_names.append(ref_color_type_name)
             # Use OEMol instead of CreateCopy because otherwise colored_ref_mol
             # color atoms are deleted by OERemoveColorAtoms
             this_ref_mol = OEMol(colored_ref_mol)
             OERemoveColorAtoms(this_ref_mol)
             OEAddColorAtom(this_ref_mol, OEFloatArray(coords), ref_color_type,
-                           self.color_ff.GetTypeName(ref_color_type))
+                           ref_color_type_name)
             assert OECountColorAtoms(this_ref_mol) == 1
             super(ColorOverlap, self).SetRefMol(this_ref_mol)
             results.append(self.overlap(fit_mol))
         super(ColorOverlap, self).SetRefMol(self.ref_mol)  # reset ref mol
-        return results
+        return {'overlaps': results,
+                'ref_color_coords': ref_color_coords,
+                'ref_color_types': ref_color_types,
+                'ref_color_type_names': ref_color_type_names}
 
     @staticmethod
     def group_ref_color_atom_overlaps(results):
@@ -167,7 +189,7 @@ class ColorOverlap(OEColorOverlap):
         max_size = 0
         it = np.nditer(results, flags=['multi_index', 'refs_ok'])
         for _ in it:
-            max_size = max(max_size, results[it.multi_index].size)
+            max_size = max(max_size, len(results[it.multi_index]))
 
         # build a masked array containing results
         # don't use data[it.multi_index][:result.size] because that assigns
