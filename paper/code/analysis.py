@@ -296,8 +296,7 @@ def main():
     models = ['logistic', 'random_forest', 'svm']
     if FLAGS.reload is not None:
         logging.info('Loading processed data from %s', FLAGS.reload)
-        with gzip.open(FLAGS.reload) as f:
-            data = pickle.load(f)
+        data = pd.read_pickle(FLAGS.reload)
     else:
         data = []
         for model in models:
